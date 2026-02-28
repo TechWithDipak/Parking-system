@@ -1,7 +1,8 @@
 import mysql.connector
-from flask import Flask, render_template_string, request, redirect, url_for, session, flash
+from flask import Flask, render_template_string, request, redirect, url_for, session, flash, jsonify
 from datetime import datetime
 import math
+import random
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_for_session'
@@ -38,12 +39,13 @@ HTML_BASE = """
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
-    <nav class="bg-slate-800 text-white p-4 shadow-lg">
+    <nav class="bg-slate-800 text-white p-4 shadow-lg sticky top-0 z-40">
         <div class="container mx-auto flex justify-between items-center">
             <h1 class="text-2xl font-bold"><i class="fas fa-parking text-yellow-400 mr-2"></i>ParkingSys Pro</h1>
             {% if session.get('logged_in') %}
             <div class="flex items-center space-x-6">
                 <a href="/dashboard" class="hover:text-yellow-400 transition"><i class="fas fa-table-cells mr-1"></i> Dashboard</a>
+                <a href="/customers" class="hover:text-yellow-400 transition"><i class="fas fa-users mr-1"></i> Customers</a>
                 <a href="/history" class="hover:text-yellow-400 transition"><i class="fas fa-history mr-1"></i> History</a>
                 <span class="text-gray-400 border-l pl-6 border-gray-600">User: {{ session['username'] }}</span>
                 <a href="/logout" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded text-sm font-bold transition">Logout</a>
@@ -90,18 +92,81 @@ HTML_LOGIN = """
 </div>
 """
 
+HTML_CUSTOMERS = """
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Add Customer Form -->
+    <div class="col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit border border-gray-100">
+        <h3 class="text-lg font-bold mb-4 border-b pb-3 text-gray-800"><i class="fas fa-user-plus mr-2 text-blue-500"></i> Register Customer</h3>
+        <form action="/customers/add" method="POST">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Customer Name</label>
+                <input type="text" name="name" placeholder="John Doe" class="w-full px-3 py-2 border rounded-lg bg-gray-50" required>
+            </div>
+            <div class="mb-5">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Vehicle License Plate</label>
+                <input type="text" name="vehicle_plate" placeholder="MH12AB1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50" required>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
+                Register Customer
+            </button>
+        </form>
+    </div>
+
+    <!-- Customer List -->
+    <div class="col-span-1 lg:col-span-2 bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+        <h2 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2"><i class="fas fa-users text-blue-500 mr-2"></i> Registered Customers Database</h2>
+        <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <table class="min-w-full bg-white border rounded-lg overflow-hidden">
+                <thead class="bg-slate-800 text-white sticky top-0">
+                    <tr>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Customer ID</th>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Name</th>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Vehicle Plate</th>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Registered Date</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-700">
+                    {% for customer in customers %}
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="py-3 px-4 font-bold text-blue-600">{{ customer.customer_code }}</td>
+                        <td class="py-3 px-4">{{ customer.name }}</td>
+                        <td class="py-3 px-4 font-mono font-bold">{{ customer.vehicle_plate }}</td>
+                        <td class="py-3 px-4 text-sm">{{ customer.created_at.strftime('%Y-%m-%d') if customer.created_at else '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="py-4 text-center text-gray-500">No customers registered yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+"""
+
 HTML_DASHBOARD = """
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
     <!-- Parking Operation Form (Left Panel) -->
-    <div class="col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit border border-gray-100">
+    <div class="col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit border border-gray-100 sticky top-24">
         <h3 class="text-lg font-bold mb-4 border-b pb-3 text-gray-800"><i class="fas fa-car-side mr-2 text-blue-500"></i> Check-In Vehicle</h3>
         <form action="/park" method="POST">
+            
             <div class="mb-4">
-                <label class="block text-gray-700 text-sm font-bold mb-2">License Plate</label>
-                <input type="text" name="plate" placeholder="e.g. MH12AB1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50" required>
+                <label class="block text-gray-700 text-sm font-bold mb-2 text-blue-600">Registered Customer (Optional)</label>
+                <select id="customerSelect" class="w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 focus:ring-2 focus:ring-blue-500">
+                    <option value="">-- Guest / Walk-in --</option>
+                    {% for c in customers %}
+                    <option value="{{ c.vehicle_plate }}">{{ c.customer_code }} - {{ c.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Selecting a customer auto-fills the license plate.</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">License Plate <span class="text-red-500">*</span></label>
+                <input type="text" id="plateInput" name="plate" placeholder="e.g. MH12AB1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50 font-mono transition-colors" required>
             </div>
             <div class="mb-5">
-                <label class="block text-gray-700 text-sm font-bold mb-2">Assign Spot</label>
+                <label class="block text-gray-700 text-sm font-bold mb-2">Assign Spot <span class="text-red-500">*</span></label>
                 <select name="spot_id" class="w-full px-3 py-2 border rounded-lg bg-gray-50">
                     {% for spot in spots if not spot.is_occupied %}
                         <option value="{{ spot.spot_id }}">{{ spot.spot_number }} ({{ spot.type_name }} - ${{ spot.hourly_rate }}/hr)</option>
@@ -130,35 +195,29 @@ HTML_DASHBOARD = """
     <div class="col-span-1 lg:col-span-3 space-y-8">
         {% for zone, zone_spots in zoned_spots.items() %}
         <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100">
-            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">{{ zone }}</h3>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">{{ zone }} ({{ zone_spots|selectattr('is_occupied', 'equalto', 0)|list|length }} free / {{ zone_spots|length }} total)</h3>
+            
+            <!-- Dense Grid for 20-25 spots -->
+            <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
                 {% for spot in zone_spots %}
-                <div class="relative p-4 rounded-xl border-2 text-center transition flex flex-col justify-between
-                            {{ 'border-red-400 bg-red-50' if spot.is_occupied else 'border-green-400 bg-green-50' }}">
+                <div class="relative p-3 rounded-xl border-2 text-center transition flex flex-col justify-between
+                            {{ 'border-red-400 bg-red-50 shadow-md' if spot.is_occupied else 'border-green-400 bg-green-50' }}">
                     
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="font-bold text-lg">{{ spot.spot_number }}</span>
-                        <span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded-full">{{ spot.type_name }}</span>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-md">{{ spot.spot_number }}</span>
+                        <span class="text-[10px] bg-gray-200 text-gray-700 px-1 py-0.5 rounded">{{ spot.type_name }}</span>
                     </div>
                     
                     {% if spot.is_occupied %}
-                        <div class="text-red-500 my-2"><i class="fas fa-car fa-3x"></i></div>
-                        <div class="text-sm font-mono font-bold bg-white border border-red-200 rounded px-2 py-1 mb-3 shadow-sm">{{ spot.vehicle_plate }}</div>
+                        <div class="text-red-500 my-1"><i class="fas fa-car fa-2x"></i></div>
+                        <div class="text-xs font-mono font-bold bg-white border border-red-200 rounded px-1 py-1 mb-2 shadow-sm break-words">{{ spot.vehicle_plate }}</div>
                         
-                        <form action="/exit" method="POST" class="mt-auto">
-                            <input type="hidden" name="spot_id" value="{{ spot.spot_id }}">
-                            <select name="payment_method" class="w-full text-xs p-1 mb-2 border rounded" required>
-                                <option value="Cash">Cash</option>
-                                <option value="Card">Card</option>
-                                <option value="UPI">UPI</option>
-                            </select>
-                            <button type="submit" class="text-sm font-bold bg-red-600 text-white px-2 py-2 rounded-lg hover:bg-red-700 w-full shadow">
-                                Check-Out
-                            </button>
-                        </form>
+                        <button onclick="openCheckoutModal({{ spot.spot_id }})" class="mt-auto text-xs font-bold bg-red-600 text-white px-1 py-1.5 rounded hover:bg-red-700 w-full shadow transition transform hover:scale-105">
+                            Check-Out
+                        </button>
                     {% else %}
-                        <div class="text-green-500 my-4"><i class="fas fa-parking fa-3x opacity-50"></i></div>
-                        <span class="text-sm font-bold text-green-700 mt-auto">Available</span>
+                        <div class="text-green-500 my-2"><i class="fas fa-parking fa-2x opacity-50"></i></div>
+                        <span class="text-xs font-bold text-green-700 mt-auto">Available</span>
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -167,6 +226,125 @@ HTML_DASHBOARD = """
         {% endfor %}
     </div>
 </div>
+
+<!-- ========================================== -->
+<!-- CHECKOUT MODAL POPUP -->
+<!-- ========================================== -->
+<div id="checkoutModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex justify-center items-center z-50">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md transform transition-all scale-95 opacity-0" id="modalContent">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-file-invoice-dollar text-green-500 mr-2"></i> Checkout Summary</h2>
+            <button onclick="closeModal()" class="text-gray-500 hover:text-red-500"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        
+        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
+            <div class="flex justify-between mb-2">
+                <span class="text-gray-600">Vehicle Plate:</span>
+                <span id="modalPlate" class="font-bold font-mono text-lg text-gray-800"></span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span class="text-gray-600">Spot Number:</span>
+                <span id="modalSpot" class="font-bold text-gray-800"></span>
+            </div>
+            <div class="flex justify-between mb-4">
+                <span class="text-gray-600">Duration (Hours):</span>
+                <span id="modalDuration" class="font-bold text-gray-800"></span>
+            </div>
+            <div class="border-t border-gray-300 pt-3 flex justify-between items-center">
+                <span class="text-gray-800 font-bold text-lg">Total Amount:</span>
+                <span class="text-3xl font-bold text-red-600">$<span id="modalFee"></span></span>
+            </div>
+            <div id="modalPassNotice" class="text-green-600 text-sm font-bold text-right mt-1 hidden">
+                <i class="fas fa-check-circle"></i> Active Monthly Pass Applied
+            </div>
+        </div>
+
+        <form action="/exit" method="POST">
+            <input type="hidden" name="spot_id" id="modalSpotId">
+            <div class="mb-6">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Select Payment Method</label>
+                <select name="payment_method" id="paymentMethod" class="w-full p-3 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500" required>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card / PoS</option>
+                    <option value="UPI">UPI / QR Code</option>
+                </select>
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="closeModal()" class="px-5 py-3 bg-gray-200 text-gray-800 font-bold rounded-lg hover:bg-gray-300 transition">Cancel</button>
+                <button type="submit" class="px-5 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition shadow-lg flex items-center">
+                    <i class="fas fa-check mr-2"></i> Confirm & Collect
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Autofill License Plate when Customer is selected
+    document.getElementById('customerSelect')?.addEventListener('change', function() {
+        const plateInput = document.getElementById('plateInput');
+        if(this.value) {
+            plateInput.value = this.value;
+            plateInput.readOnly = true;
+            plateInput.classList.add('bg-blue-100', 'border-blue-400');
+            plateInput.classList.remove('bg-gray-50');
+        } else {
+            plateInput.value = '';
+            plateInput.readOnly = false;
+            plateInput.classList.remove('bg-blue-100', 'border-blue-400');
+            plateInput.classList.add('bg-gray-50');
+        }
+    });
+
+    function openCheckoutModal(spotId) {
+        // Fetch fee details from the backend API
+        fetch(`/api/calculate_fee/${spotId}`)
+            .then(response => response.json())
+            .then(data => {
+                if(data.error) {
+                    alert(data.error);
+                    return;
+                }
+                // Populate Modal Data
+                document.getElementById('modalSpotId').value = spotId;
+                document.getElementById('modalPlate').innerText = data.plate;
+                document.getElementById('modalSpot').innerText = data.spot_number;
+                document.getElementById('modalDuration').innerText = data.hours + " hr(s)";
+                document.getElementById('modalFee').innerText = parseFloat(data.fee).toFixed(2);
+                
+                // Show/Hide Monthly Pass Notice
+                const passNotice = document.getElementById('modalPassNotice');
+                const paymentDropdown = document.getElementById('paymentMethod');
+                
+                if(data.has_pass) {
+                    passNotice.classList.remove('hidden');
+                    paymentDropdown.innerHTML = '<option value="Pass (Free)">Monthly Pass (Free)</option>';
+                } else {
+                    passNotice.classList.add('hidden');
+                    paymentDropdown.innerHTML = '<option value="Cash">Cash</option><option value="Card">Card / PoS</option><option value="UPI">UPI / QR Code</option>';
+                }
+
+                // Display Modal with animation
+                const modal = document.getElementById('checkoutModal');
+                const content = document.getElementById('modalContent');
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    content.classList.remove('scale-95', 'opacity-0');
+                    content.classList.add('scale-100', 'opacity-100');
+                }, 10);
+            });
+    }
+
+    function closeModal() {
+        const modal = document.getElementById('checkoutModal');
+        const content = document.getElementById('modalContent');
+        content.classList.remove('scale-100', 'opacity-100');
+        content.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => {
+            modal.classList.add('hidden');
+        }, 200); // Wait for transition
+    }
+</script>
 """
 
 HTML_HISTORY = """
@@ -258,7 +436,7 @@ def dashboard():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # Fetch spots with their zone and vehicle type data (JOINing tables)
+    # Get spots
     cursor.execute("""
         SELECT s.*, z.zone_name, v.type_name, v.hourly_rate 
         FROM parking_spots s 
@@ -268,7 +446,6 @@ def dashboard():
     """)
     spots = cursor.fetchall()
 
-    # Group spots by zone for the UI
     zoned_spots = {}
     for spot in spots:
         z_name = spot['zone_name']
@@ -276,15 +453,71 @@ def dashboard():
             zoned_spots[z_name] = []
         zoned_spots[z_name].append(spot)
         
-    # Fetch vehicle types for the legend
+    # Get vehicle types for legend
     cursor.execute("SELECT * FROM vehicle_types")
     types = cursor.fetchall()
+
+    # Get customers for the dropdown
+    customers = []
+    try:
+        cursor.execute("SELECT * FROM customers ORDER BY name")
+        customers = cursor.fetchall()
+    except mysql.connector.Error:
+        pass # Handle case where user hasn't created the customers table yet
     
     cursor.close()
     conn.close()
     
     full_template = HTML_BASE.replace('{% block content %}{% endblock %}', HTML_DASHBOARD)
-    return render_template_string(full_template, spots=spots, zoned_spots=zoned_spots, types=types)
+    return render_template_string(full_template, spots=spots, zoned_spots=zoned_spots, types=types, customers=customers)
+
+@app.route('/customers')
+def customers_page():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    customer_list = []
+    try:
+        cursor.execute("SELECT * FROM customers ORDER BY created_at DESC")
+        customer_list = cursor.fetchall()
+    except mysql.connector.Error:
+        flash("Please create the 'customers' table in your database first!", "error")
+
+    cursor.close()
+    conn.close()
+
+    full_template = HTML_BASE.replace('{% block content %}{% endblock %}', HTML_CUSTOMERS)
+    return render_template_string(full_template, customers=customer_list)
+
+@app.route('/customers/add', methods=['POST'])
+def add_customer():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    
+    name = request.form['name']
+    vehicle_plate = request.form['vehicle_plate'].upper()
+    
+    # Generate a random customer code (e.g. CUST-8492)
+    customer_code = f"CUST-{random.randint(1000, 9999)}"
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO customers (customer_code, name, vehicle_plate) VALUES (%s, %s, %s)", 
+                       (customer_code, name, vehicle_plate))
+        conn.commit()
+        flash(f'Customer {name} registered successfully with ID: {customer_code}!', 'success')
+    except mysql.connector.IntegrityError:
+        conn.rollback()
+        flash('Error: This Vehicle Plate is already registered to a customer.', 'error')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error: {str(e)}', 'error')
+    finally:
+        cursor.close()
+        conn.close()
+        
+    return redirect(url_for('customers_page'))
 
 @app.route('/park', methods=['POST'])
 def park_vehicle():
@@ -310,6 +543,50 @@ def park_vehicle():
         
     return redirect(url_for('dashboard'))
 
+# ==========================================
+# API ENDPOINT TO CALCULATE FEE FOR POPUP
+# ==========================================
+@app.route('/api/calculate_fee/<int:spot_id>')
+def calculate_fee(spot_id):
+    if not session.get('logged_in'): return jsonify({'error': 'Unauthorized'})
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    cursor.execute("""
+        SELECT t.id, t.vehicle_plate, t.entry_time, v.hourly_rate, s.spot_number
+        FROM transactions t
+        JOIN parking_spots s ON t.spot_id = s.spot_id
+        JOIN vehicle_types v ON s.type_id = v.id
+        WHERE t.spot_id = %s AND t.exit_time IS NULL LIMIT 1
+    """, (spot_id,))
+    txn = cursor.fetchone()
+    
+    if not txn:
+        return jsonify({'error': 'No active transaction found.'})
+        
+    # Check Monthly Pass
+    cursor.execute("SELECT * FROM monthly_passes WHERE vehicle_plate = %s AND valid_until >= CURDATE()", (txn['vehicle_plate'],))
+    has_pass = cursor.fetchone() is not None
+    
+    # Calculate
+    exit_time = datetime.now()
+    duration = exit_time - txn['entry_time']
+    hours = math.ceil(duration.total_seconds() / 3600)
+    
+    fee = 0.00 if has_pass else (hours * float(txn['hourly_rate']))
+    
+    cursor.close()
+    conn.close()
+    
+    return jsonify({
+        'plate': txn['vehicle_plate'],
+        'spot_number': txn['spot_number'],
+        'hours': hours,
+        'fee': fee,
+        'has_pass': has_pass
+    })
+
 @app.route('/exit', methods=['POST'])
 def exit_vehicle():
     if not session.get('logged_in'): return redirect(url_for('login'))
@@ -321,7 +598,6 @@ def exit_vehicle():
     cursor = conn.cursor(dictionary=True)
     
     try:
-        # 1. Get Active Transaction & Spot Details
         cursor.execute("""
             SELECT t.id, t.vehicle_plate, t.entry_time, v.hourly_rate
             FROM transactions t
@@ -336,11 +612,9 @@ def exit_vehicle():
             entry_time = txn['entry_time']
             rate = txn['hourly_rate']
             
-            # 2. Check for active Monthly Pass
             cursor.execute("SELECT * FROM monthly_passes WHERE vehicle_plate = %s AND valid_until >= CURDATE()", (plate,))
             has_pass = cursor.fetchone()
             
-            # 3. Calculate Fee
             exit_time = datetime.now()
             duration = exit_time - entry_time
             hours = math.ceil(duration.total_seconds() / 3600)
@@ -351,20 +625,12 @@ def exit_vehicle():
             else:
                 fee = hours * float(rate)
             
-            # 4. Update Transaction
             cursor.execute("UPDATE transactions SET exit_time = %s, fee = %s WHERE id = %s", (exit_time, fee, txn['id']))
-            
-            # 5. Record Payment Log
-            cursor.execute("INSERT INTO payments (transaction_id, payment_method, amount) VALUES (%s, %s, %s)", 
-                          (txn['id'], payment_method, fee))
-            
-            # 6. Free the Spot
+            cursor.execute("INSERT INTO payments (transaction_id, payment_method, amount) VALUES (%s, %s, %s)", (txn['id'], payment_method, fee))
             cursor.execute("UPDATE parking_spots SET is_occupied = FALSE, vehicle_plate = NULL WHERE spot_id = %s", (spot_id,))
             
             conn.commit()
-            
-            msg = f'Checkout Complete for {plate}. Duration: {hours}hr. Total Fee: ${fee:.2f} ({payment_method})'
-            flash(msg, 'success')
+            flash(f'Checkout Complete for {plate}. Total Collected: ${fee:.2f} via {payment_method}', 'success')
             
     except Exception as e:
         conn.rollback()
@@ -382,7 +648,6 @@ def history():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # Join Transactions, Spots, and Payments to get a full view
     cursor.execute("""
         SELECT t.id, t.vehicle_plate, t.entry_time, t.exit_time, t.fee,
                s.spot_number, p.payment_method
