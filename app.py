@@ -408,6 +408,11 @@ def login():
         password = request.form['password']
         
         conn = get_db_connection()
+        if not conn:
+            flash('Database Connection Error. Please check your MySQL server and password.', 'error')
+            full_html = HTML_BASE.replace('{% block content %}{% endblock %}', HTML_LOGIN)
+            return render_template_string(full_html)
+
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
         user = cursor.fetchone()
@@ -434,6 +439,9 @@ def dashboard():
     if not session.get('logged_in'): return redirect(url_for('login'))
     
     conn = get_db_connection()
+    if not conn:
+        return "Database Connection Failed. Please ensure MySQL is running and credentials in app.py are correct.", 500
+
     cursor = conn.cursor(dictionary=True)
     
     # Get spots
@@ -476,6 +484,9 @@ def customers_page():
     if not session.get('logged_in'): return redirect(url_for('login'))
     
     conn = get_db_connection()
+    if not conn:
+        return "Database Connection Failed. Please ensure MySQL is running.", 500
+
     cursor = conn.cursor(dictionary=True)
     customer_list = []
     try:
@@ -501,6 +512,10 @@ def add_customer():
     customer_code = f"CUST-{random.randint(1000, 9999)}"
     
     conn = get_db_connection()
+    if not conn:
+        flash('Database connection failed.', 'error')
+        return redirect(url_for('customers_page'))
+
     cursor = conn.cursor()
     try:
         cursor.execute("INSERT INTO customers (customer_code, name, vehicle_plate) VALUES (%s, %s, %s)", 
@@ -527,6 +542,10 @@ def park_vehicle():
     spot_id = request.form['spot_id']
     
     conn = get_db_connection()
+    if not conn:
+        flash('Database connection failed.', 'error')
+        return redirect(url_for('dashboard'))
+
     cursor = conn.cursor()
     
     try:
@@ -551,6 +570,9 @@ def calculate_fee(spot_id):
     if not session.get('logged_in'): return jsonify({'error': 'Unauthorized'})
     
     conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed.'})
+
     cursor = conn.cursor(dictionary=True)
     
     cursor.execute("""
@@ -595,6 +617,10 @@ def exit_vehicle():
     payment_method = request.form['payment_method']
     
     conn = get_db_connection()
+    if not conn:
+        flash('Database connection failed.', 'error')
+        return redirect(url_for('dashboard'))
+
     cursor = conn.cursor(dictionary=True)
     
     try:
@@ -646,6 +672,9 @@ def history():
     if not session.get('logged_in'): return redirect(url_for('login'))
     
     conn = get_db_connection()
+    if not conn:
+        return "Database Connection Failed. Please ensure MySQL is running.", 500
+
     cursor = conn.cursor(dictionary=True)
     
     cursor.execute("""
