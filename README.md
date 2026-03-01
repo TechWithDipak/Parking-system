@@ -1,111 +1,129 @@
-🚗 Car Parking Management System (Pro Max)
+# 🚗 Car Parking Management System (Pro Max)
 
-A robust, full-stack web application designed to automate and manage parking lot operations. This advanced system handles real-time tracking of parking spots across multiple zones, vehicle entry/exit logging, automated fee calculation, customer management, and role-based access.
+A robust, full-stack web application designed to automate and manage parking lot operations. This advanced system manages real-time tracking of parking spots across multiple zones, vehicle entry/exit logging, automated fee calculation, customer management, and role-based access control.
 
-✨ Key Features
+---
 
-Real-time Dashboard: Visual grid representation of all parking slots with live occupancy status, handling up to 25 spots per level seamlessly.
+## ✨ Key Features
 
-Customer Management: Register frequent customers with unique IDs. Selecting a customer during check-in automatically auto-fills their registered license plate.
+### 📊 Real-time Dashboard
+- Visual grid representation of all parking slots  
+- Live occupancy updates  
+- Handles up to **25 spots per level** seamlessly  
+- Zone-based layout support (VIP, Level 1, etc.)
 
-Smart Check-Out Modal: An interactive pop-up that calculates and displays the exact parking duration and fee before finalizing the checkout.
+### 👥 Customer Management
+- Register frequent customers with unique IDs  
+- Auto-fill registered license plate during check-in  
+- Linked customer history and transaction tracking  
 
-Dynamic Pricing: Hourly rates adjust automatically based on the vehicle type (Car, Bike, Truck).
+### 🧾 Smart Check-Out Modal
+- Interactive pop-up before finalizing checkout  
+- Automatically calculates:
+  - Total parking duration  
+  - Applicable rate  
+  - Final payable amount  
 
-Monthly Passes: The system automatically detects if a vehicle has an active monthly pass and waives the parking fee ($0.00).
+### 💰 Dynamic Pricing Engine
+- Hourly pricing based on vehicle type:
+  - 🚗 Car  
+  - 🏍️ Bike  
+  - 🚚 Truck  
 
-Transaction & Payment Logs: A dedicated history page to view all past parking sessions, including the payment method used (Cash, Card, UPI).
+### 🗓️ Monthly Pass Detection
+- Automatically verifies active monthly subscriptions  
+- If valid → Parking fee is **$0.00**  
+- Seamless subscription handling  
 
-Responsive UI: A modern, clean interface built with Tailwind CSS that adapts to different screen sizes.
+### 📑 Transaction & Payment Logs
+- Dedicated history page  
+- Complete record of:
+  - Entry time  
+  - Exit time  
+  - Duration  
+  - Vehicle type  
+  - Payment method (Cash / Card / UPI)  
 
-🛠️ Technology Stack
+### 📱 Responsive UI
+- Built with **Tailwind CSS**  
+- Clean, modern design  
+- Fully responsive across devices  
 
-Backend: Python 3, Flask framework
+---
 
-Frontend: HTML5, Tailwind CSS, JavaScript, FontAwesome Icons
+## 🛠️ Technology Stack
 
-Database: MySQL
+**Backend**
+- Python 3  
+- Flask  
 
-Database Driver: mysql-connector-python
+**Frontend**
+- HTML5  
+- Tailwind CSS  
+- JavaScript  
+- FontAwesome Icons  
 
-🗄️ Database Architecture (8 Tables)
+**Database**
+- MySQL  
 
-The system is highly normalized and utilizes the following tables:
+**Database Driver**
+- mysql-connector-python  
 
-users: System administrators and operators.
+---
 
-vehicle_types: Base pricing rules (e.g., Cars vs. Bikes).
+## 🗄️ Database Architecture (8 Tables)
 
-parking_zones: Physical layout areas (e.g., VIP, Level 1).
+The system follows a normalized relational schema.
 
-parking_spots: Individual parking slots tied to zones and types.
+| Table Name       | Description |
+|------------------|-------------|
+| `users`          | Stores system admins and operators |
+| `vehicle_types`  | Base pricing configuration |
+| `parking_zones`  | Logical/physical parking areas |
+| `parking_spots`  | Individual slots linked to zones |
+| `monthly_passes` | Subscription tracking |
+| `transactions`   | Core entry/exit logs |
+| `payments`       | Financial records tied to transactions |
+| `customers`      | Registered frequent users |
 
-monthly_passes: Active subscription tracking.
+---
 
-transactions: Core log of every vehicle entry and exit.
+## 🚀 Installation & Setup Guide
 
-payments: Financial records tied to transactions.
+### 1️⃣ Prerequisites
 
-customers: Registered frequent parkers with pre-linked license plates.
+Ensure the following are installed:
 
-🚀 Installation & Setup Guide
+- Python 3.8+
+- MySQL Community Edition
 
-1. Prerequisites
+---
 
-Ensure you have the following installed on your machine:
+### 2️⃣ Database Initialization
 
-Python 3.8+
+1. Open MySQL Workbench or Terminal.
+2. Execute the `schema.sql` file to:
+   - Create the `parking_sys` database
+   - Create all 8 tables
+   - Insert seed data (zones, spots, default users)
 
-[suspicious link removed] (Community Edition)
+---
 
-2. Database Initialization
+### 3️⃣ Application Setup
 
-Open your MySQL client (Workbench or Terminal).
+Navigate to the project directory and execute:
 
-Execute your schema.sql script to create the parking_sys database, the 8 tables, and insert the seed data (spots, zones, and default users).
-
-3. Application Setup
-
-Open your terminal in the project directory and run the following commands:
-
-# 1. Create a virtual environment (optional but recommended)
+```bash
+# 1. Create a virtual environment (recommended)
 python -m venv venv
 
 # 2. Activate the virtual environment
-# On Windows:
-.\\venv\\Scripts\\activate
-# On macOS/Linux:
+
+# Windows:
+.\venv\Scripts\activate
+
+# macOS/Linux:
 source venv/bin/activate
 
-# 3. Install required Python packages
+# 3. Install dependencies
 pip install flask mysql-connector-python
-
-
-4. Configuration
-
-Open app.py in your code editor.
-
-Locate the db_config dictionary at the top of the file.
-
-Change the 'password' field to match your actual local MySQL root password.
-
-5. Run the Application
-
-Start the Flask development server:
-
-python app.py
-
-
-Open your web browser and navigate to: https://www.google.com/search?q=http://127.0.0.1:5000
-
-🔐 Default Credentials
-
-Use these credentials to log in for the first time (as configured in the seed data):
-
-Username: admin
-
-Password: admin123
-
-Role: Admin
-
-Developed as a Database Management System (DBMS) Project.
