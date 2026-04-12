@@ -20,6 +20,8 @@ db_config = {
 def get_db_connection():
     try:
         conn = mysql.connector.connect(**db_config)
+        # Ensure Autocommit is OFF for manual Transaction Management (ACID)
+        conn.autocommit = False
         return conn
     except mysql.connector.Error as err:
         print(f"Error connecting: {err}")
@@ -47,6 +49,7 @@ HTML_BASE = """
                 <a href="/dashboard" class="hover:text-yellow-400 transition"><i class="fas fa-table-cells mr-1"></i> Dashboard</a>
                 <a href="/customers" class="hover:text-yellow-400 transition"><i class="fas fa-users mr-1"></i> Customers</a>
                 <a href="/history" class="hover:text-yellow-400 transition"><i class="fas fa-history mr-1"></i> History</a>
+                <a href="/reports" class="hover:text-yellow-400 transition"><i class="fas fa-chart-pie mr-1"></i> Reports</a>
                 <span class="text-gray-400 border-l pl-6 border-gray-600">User: {{ session['username'] }}</span>
                 <a href="/logout" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded text-sm font-bold transition">Logout</a>
             </div>
@@ -391,6 +394,40 @@ HTML_HISTORY = """
 </div>
 """
 
+HTML_REPORTS = """
+<div class="bg-white rounded-xl shadow-lg p-8">
+    <h2 class="text-2xl font-bold mb-6 text-gray-800"><i class="fas fa-chart-bar text-purple-500 mr-2"></i> Lock Mechanism Demonstration & Reports</h2>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="p-6 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 class="text-xl font-bold text-blue-800 mb-4">Table-Level Locking Status</h3>
+            <p class="text-gray-700 mb-4 text-sm">
+                This report generated using a <code>LOCK TABLES ... READ / WRITE</code> (Table-Level Shared & Exclusive Locks) to guarantee absolute snapshot consistency across multiple tables without phantom reads.
+            </p>
+            <ul class="space-y-3">
+                <li class="flex justify-between font-bold"><span><i class="fas fa-money-check text-green-600 mr-2"></i> Total Cash Revenue:</span> <span>${{ totals.cash|default('0.00') }}</span></li>
+                <li class="flex justify-between font-bold"><span><i class="fas fa-credit-card text-blue-600 mr-2"></i> Total Card Revenue:</span> <span>${{ totals.card|default('0.00') }}</span></li>
+                <li class="flex justify-between font-bold"><span><i class="fas fa-qrcode text-purple-600 mr-2"></i> Total UPI Revenue:</span> <span>${{ totals.upi|default('0.00') }}</span></li>
+                <li class="flex justify-between font-bold text-xl border-t border-blue-200 pt-3 text-gray-900"><span>Grand Total:</span> <span>${{ totals.total|default('0.00') }}</span></li>
+            </ul>
+        </div>
+        
+        <div class="p-6 bg-orange-50 border border-orange-200 rounded-lg">
+            <h3 class="text-xl font-bold text-orange-800 mb-4">Row-Level Locking Guide (ACID)</h3>
+            <ul class="text-sm text-gray-700 space-y-4">
+                <li><i class="fas fa-lock mr-2 text-red-500"></i><strong>Row-Level Exclusive Lock:</strong> Used in Check-In and Check-Out. <code>SELECT ... FOR UPDATE</code> blocks other transactions from modifying or reading the specific spot or transaction row until <code>COMMIT</code>.</li>
+                <li><i class="fas fa-lock-open mr-2 text-green-500"></i><strong>Row-Level Shared Lock:</strong> Used in the Fare Calculation popup. <code>SELECT ... FOR SHARE</code> allows others to read, but prevents modifications while the rate is being calculated.</li>
+            </ul>
+            <div class="mt-4 text-xs font-mono bg-white p-3 border rounded">
+                Example: cursor.execute("SELECT ... FOR UPDATE")<br>
+                conn.start_transaction()<br>
+                conn.commit() / conn.rollback()
+            </div>
+        </div>
+    </div>
+</div>
+"""
+
 # ---------------------------------------------------------
 # ROUTES
 # ---------------------------------------------------------
@@ -549,13 +586,29 @@ def park_vehicle():
     cursor = conn.cursor()
     
     try:
-        cursor.execute("UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = %s WHERE spot_id = %s", (plate, spot_id))
-        cursor.execute("INSERT INTO transactions (vehicle_plate, spot_id, entry_time) VALUES (%s, %s, NOW())", (plate, spot_id))
-        conn.commit()
-        flash(f'Vehicle {plate} successfully granted entry!', 'success')
+        # --- ACID: Explicitly start transaction ---
+        conn.start_transaction()
+
+        # --- CONCURRENCY CONTROL: Row-level Exclusive Lock ---
+        # Prevent another operator from acquiring this exact spot simultaneously
+        cursor.execute("SELECT is_occupied FROM parking_spots WHERE spot_id = %s FOR UPDATE", (spot_id,))
+        spot = cursor.fetchone()
+        
+        if spot and spot[0]:
+            conn.rollback() # ACID: Rollback on invalid state
+            flash('Error: This spot was just taken by another vehicle!', 'error')
+        else:
+            # Atomicity: both statements execute successfully or none at all
+            cursor.execute("UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = %s WHERE spot_id = %s", (plate, spot_id))
+            cursor.execute("INSERT INTO transactions (vehicle_plate, spot_id, entry_time) VALUES (%s, %s, NOW())", (plate, spot_id))
+            
+            # --- ACID: Commit ---
+            conn.commit()
+            flash(f'Vehicle {plate} successfully granted entry!', 'success')
     except Exception as e:
+        # --- ACID: Rollback to ensure consistency if failure occurs ---
         conn.rollback()
-        flash(f'Error: {str(e)}', 'error')
+        flash(f'Error locking spot or processing entry: {str(e)}', 'error')
     finally:
         cursor.close()
         conn.close()
@@ -575,12 +628,15 @@ def calculate_fee(spot_id):
 
     cursor = conn.cursor(dictionary=True)
     
+    # --- CONCURRENCY CONTROL: Row-level Shared Lock (FOR SHARE) ---
+    # Prevents pricing rates or transaction details from being modified while calculating
     cursor.execute("""
         SELECT t.id, t.vehicle_plate, t.entry_time, v.hourly_rate, s.spot_number
         FROM transactions t
         JOIN parking_spots s ON t.spot_id = s.spot_id
         JOIN vehicle_types v ON s.type_id = v.id
         WHERE t.spot_id = %s AND t.exit_time IS NULL LIMIT 1
+        FOR SHARE
     """, (spot_id,))
     txn = cursor.fetchone()
     
@@ -624,12 +680,18 @@ def exit_vehicle():
     cursor = conn.cursor(dictionary=True)
     
     try:
+        # --- ACID: Start transaction ---
+        conn.start_transaction()
+
+        # --- CONCURRENCY CONTROL: Row-level Exclusive Lock ---
+        # Acquires an exclusive lock on the active transaction corresponding to the spot
         cursor.execute("""
             SELECT t.id, t.vehicle_plate, t.entry_time, v.hourly_rate
             FROM transactions t
             JOIN parking_spots s ON t.spot_id = s.spot_id
             JOIN vehicle_types v ON s.type_id = v.id
             WHERE t.spot_id = %s AND t.exit_time IS NULL LIMIT 1
+            FOR UPDATE
         """, (spot_id,))
         txn = cursor.fetchone()
         
@@ -655,12 +717,14 @@ def exit_vehicle():
             cursor.execute("INSERT INTO payments (transaction_id, payment_method, amount) VALUES (%s, %s, %s)", (txn['id'], payment_method, fee))
             cursor.execute("UPDATE parking_spots SET is_occupied = FALSE, vehicle_plate = NULL WHERE spot_id = %s", (spot_id,))
             
+            # --- ACID: COMMIT ---
             conn.commit()
             flash(f'Checkout Complete for {plate}. Total Collected: ${fee:.2f} via {payment_method}', 'success')
             
     except Exception as e:
+        # --- ACID: ROLLBACK ---
         conn.rollback()
-        flash(f'Error: {str(e)}', 'error')
+        flash(f'Transaction Error (Rolled Back): {str(e)}', 'error')
     finally:
         cursor.close()
         conn.close()
@@ -692,6 +756,56 @@ def history():
     
     full_template = HTML_BASE.replace('{% block content %}{% endblock %}', HTML_HISTORY)
     return render_template_string(full_template, logs=logs)
+
+@app.route('/reports')
+def reports():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    if not conn:
+        return "Database Connection Failed.", 500
+        
+    cursor = conn.cursor(dictionary=True)
+    totals = {'cash': 0, 'card': 0, 'upi': 0, 'total': 0}
+    
+    try:
+        # --- ACID: Start transaction ---
+        conn.start_transaction()
+        
+        # --- CONCURRENCY CONTROL: Table-level Locks ---
+        # We acquire a READ lock on payments and a WRITE lock on system_audit_log
+        # This demonstrates both Table-level Shared and Exclusive Locks
+        cursor.execute("LOCK TABLES payments READ, system_audit_log WRITE, users READ")
+        
+        # Calculate secure summary (no new payments can be inserted while taking snapshot)
+        cursor.execute("SELECT payment_method, SUM(amount) as total FROM payments GROUP BY payment_method")
+        results = cursor.fetchall()
+        
+        for r in results:
+            if r['payment_method'] == 'Cash': totals['cash'] = float(r['total'] or 0)
+            elif 'Card' in r['payment_method']: totals['card'] = float(r['total'] or 0)
+            elif 'UPI' in r['payment_method']: totals['upi'] = float(r['total'] or 0)
+                
+        totals['total'] = totals['cash'] + totals['card'] + totals['upi']
+        
+        # Demonstrate Table-level WRITE lock by inserting a reporting audit
+        cursor.execute("INSERT INTO system_audit_log (action_type, details) VALUES ('REPORT_GENERATED', 'User viewed financial report')")
+        
+        # Remember to commit any writes while tables are locked
+        conn.commit()
+    except Exception as e:
+        print("Error in reports:", e)
+    finally:
+        # ALWAYS unlock tables!
+        try:
+            cursor.execute("UNLOCK TABLES")
+        except:
+            pass
+        cursor.close()
+        conn.close()
+
+    full_template = HTML_BASE.replace('{% block content %}{% endblock %}', HTML_REPORTS)
+    return render_template_string(full_template, totals=totals)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
