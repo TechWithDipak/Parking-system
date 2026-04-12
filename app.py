@@ -106,8 +106,9 @@ HTML_CUSTOMERS = """
                 <input type="text" name="name" placeholder="John Doe" class="w-full px-3 py-2 border rounded-lg bg-gray-50" required>
             </div>
             <div class="mb-5">
-                <label class="block text-gray-700 text-sm font-bold mb-2">Vehicle License Plate</label>
-                <input type="text" name="vehicle_plate" placeholder="MH12AB1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50" required>
+                <label class="block text-gray-700 text-sm font-bold mb-2">Vehicle License Plates</label>
+                <input type="text" name="vehicle_plates" placeholder="MH12AB1234, DL01CZ1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50" required>
+                <p class="text-xs text-gray-500 mt-1">Comma-separated for 4NF multi-valued attributes.</p>
             </div>
             <div class="mb-5">
                 <label class="block text-gray-700 text-sm font-bold mb-2"><i class="fas fa-phone mr-1"></i> Phone Numbers (1NF Normalization)</label>
@@ -129,7 +130,7 @@ HTML_CUSTOMERS = """
                     <tr>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Customer ID</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Name</th>
-                        <th class="py-3 px-4 text-left font-semibold text-sm">Vehicle Plate</th>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Vehicle Plates</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Phone Numbers</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Registered Date</th>
                     </tr>
@@ -139,7 +140,7 @@ HTML_CUSTOMERS = """
                     <tr class="border-b hover:bg-gray-50">
                         <td class="py-3 px-4 font-bold text-blue-600">{{ customer.customer_code }}</td>
                         <td class="py-3 px-4">{{ customer.name }}</td>
-                        <td class="py-3 px-4 font-mono font-bold">{{ customer.vehicle_plate }}</td>
+                        <td class="py-3 px-4 font-mono font-bold">{{ customer.vehicles if customer.vehicles else 'N/A' }}</td>
                         <td class="py-3 px-4 text-sm">{{ customer.phones if customer.phones else 'N/A' }}</td>
                         <td class="py-3 px-4 text-sm">{{ customer.created_at.strftime('%Y-%m-%d') if customer.created_at else '' }}</td>
                     </tr>
@@ -512,7 +513,7 @@ def dashboard():
     # Get customers for the dropdown
     customers = []
     try:
-        cursor.execute("SELECT * FROM customers ORDER BY name")
+        cursor.execute("SELECT c.customer_code, c.name, cv.vehicle_plate FROM customers c JOIN customer_vehicles cv ON c.id = cv.customer_id ORDER BY c.name")
         customers = cursor.fetchall()
     except mysql.connector.Error:
         pass # Handle case where user hasn't created the customers table yet
@@ -535,9 +536,12 @@ def customers_page():
     customer_list = []
     try:
         cursor.execute("""
-            SELECT c.*, GROUP_CONCAT(cp.phone_number SEPARATOR ', ') as phones 
+            SELECT c.*, 
+                   GROUP_CONCAT(DISTINCT cp.phone_number SEPARATOR ', ') as phones,
+                   GROUP_CONCAT(DISTINCT cv.vehicle_plate SEPARATOR ', ') as vehicles
             FROM customers c 
             LEFT JOIN customer_phones cp ON c.id = cp.customer_id 
+            LEFT JOIN customer_vehicles cv ON c.id = cv.customer_id
             GROUP BY c.id 
             ORDER BY c.created_at DESC
         """)
@@ -557,7 +561,8 @@ def add_customer():
     if not session.get('logged_in'): return redirect(url_for('login'))
     
     name = request.form['name']
-    vehicle_plate = request.form['vehicle_plate'].upper()
+    vehicle_plates = request.form.get('vehicle_plates', '')
+    vehicles = [v.strip().upper() for v in vehicle_plates.split(',') if v.strip()]
     phone_numbers = request.form.get('phone_numbers', '')
     phones = [p.strip() for p in phone_numbers.split(',') if p.strip()]
     
@@ -572,17 +577,21 @@ def add_customer():
     cursor = conn.cursor()
     try:
         conn.start_transaction()
-        cursor.execute("INSERT INTO customers (customer_code, name, vehicle_plate) VALUES (%s, %s, %s)", 
-                       (customer_code, name, vehicle_plate))
+        cursor.execute("INSERT INTO customers (customer_code, name) VALUES (%s, %s)", 
+                       (customer_code, name))
         customer_id = cursor.lastrowid
         
         for phone in phones:
             cursor.execute("INSERT INTO customer_phones (customer_id, phone_number) VALUES (%s, %s)", (customer_id, phone))
             
+        for plate in vehicles:
+            cursor.execute("INSERT INTO customer_vehicles (customer_id, vehicle_plate) VALUES (%s, %s)", (customer_id, plate))
+            
         conn.commit()
-        flash(f'Customer {name} registered successfully with {len(phones)} phone number(s)! ID: {customer_code}', 'success')
+        flash(f'Customer {name} registered successfully with ID: {customer_code}', 'success')
     except mysql.connector.IntegrityError:
         conn.rollback()
+        flash('Error: A Vehicle Plate entered is already registered to a customer.', 'error')
         flash('Error: This Vehicle Plate is already registered to a customer.', 'error')
     except Exception as e:
         conn.rollback()

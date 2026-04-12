@@ -1,77 +1,201 @@
-# DBMS Review 3 Report: Normalization, Transactions & Concurrency
+# Relational Database Normalization Report (1NF to 5NF)
 
-This document is structurally designed to assist you in defending your project during the "Review 3" viva. It includes all major functional aspects from the system morning implementation in addition to the newly added normalization of multi-valued attributes in the database.
+This comprehensive defense document details the step-by-step rigorous process taken to normalize the Car Parking Management System database from its initial 1st Normal Form (1NF) implementation up to the advanced 5th Normal Form (5NF / Project-Join Normal Form).
 
----
-
-## 1. Normalization (Adding Multi-Valued Attributes & Normalizing)
-
-**Why was this done?** 
-In a viva, you might be asked to demonstrate how you handled a **1NF (First Normal Form) violation**, specifically regarding **multi-valued attributes**. A classic example is a customer possessing multiple phone numbers.
-
-### BEFORE Normalization (The Problem)
-If we attempted to store multiple phone numbers in the `customers` table, it would violate 1NF because the data would no longer be atomic (a single cell would contain multiple values).
-
-**Unnormalized `customers` Table (Violates 1NF):**
-| id | customer_code | name        | vehicle_plate | phone_numbers (Multi-Valued) |
-|----|---------------|-------------|---------------|------------------------------|
-| 1  | CUST-001      | Alice Smith | MH12AB1001    | 555-0101, 555-0102       |
-| 2  | CUST-002      | Bob Jones   | MH14XY2002    | 555-0201                     |
-
-- *Anomaly:* Difficult to query a specific phone number. You can't easily index or delete a single phone number without messy string manipulation.
-
-### AFTER Normalization (The Solution - 1NF Achieved)
-To resolve this mapping issue, we removed the multi-valued attribute from the `customers` table and created a new linked table called `customer_phones`.
-
-**Normalized `customers` Table:**
-| id | customer_code | name        | vehicle_plate |
-|----|---------------|-------------|---------------|
-| 1  | CUST-001      | Alice Smith | MH12AB1001    |
-| 2  | CUST-002      | Bob Jones   | MH14XY2002    |
-
-**New `customer_phones` Table:**
-| id | customer_id (FK) | phone_number |
-|----|------------------|--------------|
-| 1  | 1                | 555-0101     |
-| 2  | 1                | 555-0102     |
-| 3  | 2                | 555-0201     |
-
-**Code Changes for this:**
-1. **Frontend (`app.py` UI):** Added an input field for "Phone Numbers (Comma separated)" indicating the 1NF context. During the template rendering, we adjusted the SQL query using `GROUP_CONCAT` and `LEFT JOIN` to group the discrete phone numbers purely to display them gracefully without violating DB structure.
-2. **Backend (`app.py` Route):** Processed the input string, split it into a list, and executed multiple atomic `INSERT INTO customer_phones` queries tied to the newly generated `customer_id`.
-3. **Database (`schema.sql`):** Separated `customers` and `customer_phones`. We used `ON DELETE CASCADE` so deleting a customer auto-cleans their phone numbers.
-
-*(Note: We also already implemented 2NF and 3NF by extracting `hourly_rates` into `vehicle_types` and `zone_names` into `parking_zones` previously!)*
+**Objective:** To ensure **Lossless Join Decompositions** and strict **Dependency Preservation**, guaranteeing zero update, insertion, or deletion anomalies. 
 
 ---
 
-## 2. Transaction Management (ACID Properties)
+## The "Before" State: Anatomy of Anomalies
+Initially, the database consisted of broad, multi-purpose tables. A theoretical unnormalized `customer_details` table looked like this:
+*   `customer_details (customer_id, name, phones, vehicle_plates, zone_assigned, shift_assigned)`
 
-**Where is it?** Look in `app.py`, specifically the `/park` and `/exit` routes.
-
-During the morning session, we properly incorporated Transaction Management so you can confidently answer the ACID rubric:
-
-1.  **Atomicity ("All or Nothing"):** In the `/park` logic, inserting the `transaction` record and updating the `parking_spots` record is encapsulated inside an explicit transaction block (`conn.start_transaction()`). If something fails, we catch the exception and run `conn.rollback()` so partial records don't persist. If it works, we heavily rely on `conn.commit()`.
-2.  **Consistency:** The system enforces check constraints (like `hourly_rate >= 0`), foreign keys, and unique constraints. A transaction guarantees leaving the database in a valid state.
-3.  **Isolation (Concurrency):** Concurrent transactions are protected using row-level and table-level locks (see Section 3).
-4.  **Durability:** Data changes are pushed permanently to the disk. Plus, our `system_audit_log` with MySQL Triggers (`after_parking_entry` / `after_parking_exit`) makes sure operations natively persist history even if the frontend crashes.
+**Anomalies Present:**
+1.  **Insertion Anomaly:** We could not add a new `shift` without an active `customer` parking in a `zone`.
+2.  **Update Anomaly:** Updating a customer's `name` would require updating multiple rows if they drove multiple `vehicle_plates`.
+3.  **Deletion Anomaly:** Deleting a specific `vehicle_plate` record might wipe out the only record of the customer's `phone` number completely.
 
 ---
 
-## 3. Concurrency Control & Locking Mechanisms
+## Step-by-Step Normalization Proof
 
-**Where is it?** Check the `/api/calculate_fee`, `/park`, and `/reports` routes.
+### 1. First Normal Form (1NF)
+**Rule:** A relation is in 1NF if all attributes are domain atomic (no multi-valued attributes or repeating groups).
+**Action:** We detected that `phones` (e.g. "9876543210, 8976543210") violated domain constraints. 
 
-This is a specific request in the Review 3 rubric. You must prove you demonstrated locking.
+**Before 1NF:**
+| customer_id | name | phones |
+| :--- | :--- | :--- |
+| 1 | Dipak Kumar | 9876543210, 8976543210 |
 
-*   **Row-Level Shared Lock (`SELECT ... FOR SHARE`)**:
-    *   *Where:* In the `/api/calculate_fee/<spot_id>` API route used when calculating ticket prices for the modal.
-    *   *Why:* When calculating the fare, we get a Shared Lock. Other staff members can still READ the data (e.g. check history), but *nobody can update or modify* the transaction/spot rate until calculating is securely completed.
+**Implementation:** Created two tables, where the phone attribute became separated. Both tables now contain only single, scalar values per cell.
 
-*   **Row-Level Exclusive Lock (`SELECT ... FOR UPDATE`)**:
-    *   *Where:* In the `/park` (check-in) and `/exit` (check-out) routes.
-    *   *Why:* While issuing a spot or completing an exit, we demand an exclusive lock right away (`SELECT is_occupied FROM parking_spots WHERE spot_id = %s FOR UPDATE`). If two operators try to assign the identical spot at the same microsecond, one will block until the first finishes, avoiding double-bookings.
+**After 1NF:**
+*Table: `customers`*
+| customer_id | name |
+| :--- | :--- |
+| 1 | Dipak Kumar |
 
-*   **Table-Level Shared & Exclusive Locks (`LOCK TABLES READ / WRITE`)**:
-    *   *Where:* In the `/reports` route.
-    *   *Why:* Generating the financial summary. We perform `LOCK TABLES payments READ, system_audit_log WRITE, users READ`. This provides guaranteed complete table-snapshot isolation meaning no new payments can sneak into the results while we are aggregating totals!
+*Table: `customer_phones`*
+| customer_id | phone_number |
+| :--- | :--- |
+| 1 | 9876543210 |
+| 1 | 8976543210 |
+
+### 2. Second Normal Form (2NF)
+**Rule:** It is in 1NF and no non-prime attribute is dependent on any proper subset of any candidate key (Partial Dependency).
+**Action:** Our tables like `parking_spots` rely on a single-column primary key (`spot_id`). Because the primary key is inherently a single attribute (atomic), partial dependencies simply cannot mathematically exist. All tables inherently satisfy 2NF constraints.
+
+**Before 2NF (Hypothetical Violation for Demo):**
+If we used a composite key of `(zone_id, type_id)` mapped to `zone_name`, `zone_name` is only dependent on `zone_id` (a partial dependency).
+| zone_id (PK) | type_id (PK) | zone_name | hourly_rate |
+| :--- | :--- | :--- | :--- |
+| Z1 | T1 | North Zone | 50.00 |
+| Z1 | T2 | North Zone | 20.00 |
+
+**After 2NF:**
+By utilizing single-attribute surrogate and primary keys across our schema, we eliminated any chance of partial dependencies.
+*Table: `parking_zones` (Fully dependent on `id`)*
+| id | zone_name |
+| :--- | :--- |
+| Z1 | North Zone |
+
+### 3. Third Normal Form (3NF)
+**Rule:** It is in 2NF, and no non-prime attribute is transitively dependent on the primary key.
+**Action:** The `parking_spots` originally housed `hourly_rate` and `zone_name`. 
+*   **FD:** `spot_id` → `type_id` → `hourly_rate`
+*   **FD:** `spot_id` → `zone_id` → `zone_name`
+This represents a classic transitive dependency! 
+
+**Before 3NF:**
+| spot_id | zone_id | zone_name | type_id | hourly_rate |
+| :--- | :--- | :--- | :--- | :--- |
+| S101 | Z1 | North Zone | T1 | 50.00 |
+| S102 | Z1 | North Zone | T1 | 50.00 |
+
+**Implementation:** Decomposed `parking_spots` into `vehicle_types` and `parking_zones` (Retaining FK constraints).
+
+**After 3NF:**
+*Table: `vehicle_types`*
+| id (type_id) | type_name | hourly_rate |
+| :--- | :--- | :--- |
+| T1 | Car | 50.00 |
+
+*Table: `parking_zones`*
+| id (zone_id) | zone_name | description |
+| :--- | :--- | :--- |
+| Z1 | North Zone | Ground Floor |
+
+*Table: `parking_spots`*
+| spot_id | zone_id | type_id |
+| :--- | :--- | :--- |
+| S101 | Z1 | T1 |
+| S102 | Z1 | T1 |
+
+### 4. Boyce-Codd Normal Form (BCNF)
+**Rule:** For every functional dependency $X \rightarrow Y$, $X$ must be a superkey.
+**Action:** After 3NF, the dependency $zone\_id \rightarrow zone\_name$ acts via foreign key. Every LHS attribute in our dependencies across all 8 base tables uniquely identifies the relation (they are Primary Keys / Unique constants). E.g., `vehicle_plate` $\rightarrow$ `owner_name` in `monthly_passes` works uniquely because `vehicle_plate` is marked `UNIQUE` (a candidate key). Thus, the schema strictly adheres to BCNF.
+
+**Demo Data Displaying Perfect BCNF:**
+For every $X \rightarrow Y$, $X$ is a superkey. In `monthly_passes`, `vehicle_plate` determines the record, and `vehicle_plate` is a Unique Candidate Key.
+*Table: `monthly_passes`*
+| pass_id (PK) | vehicle_plate (UNIQUE) | owner_name |
+| :--- | :--- | :--- |
+| P001 | MH12AB1234 | Dipak Kumar |
+| P002 | MH12CD5678 | Rahul Singh |
+
+---
+
+### 5. Fourth Normal Form (4NF)
+**Rule:** It is in BCNF, and it contains no non-trivial **Multi-Valued Dependencies (MVDs)**.
+**Problem Setup:** A customer can own multiple phone numbers AND multiple vehicles. 
+If we put this in a combined table `customer_multi`, we see MVDs:
+*   $customer\_id \twoheadrightarrow phone$
+*   $customer\_id \twoheadrightarrow plate$
+Because *phone* and *plate* are completely independent facts, combining them creates a cartesian product of redundancies.
+
+**Before 4NF:**
+*Table: `customer_multi`*
+| customer_id | phone | plate |
+| :--- | :--- | :--- |
+| 1 | 9876543210 | MH12AB1234 |
+| 1 | 9876543210 | MH12CD5678 |
+| 1 | 8976543210 | MH12AB1234 |
+| 1 | 8976543210 | MH12CD5678 |
+
+**Decomposition (Lossless Join):** 
+To eliminate cross-product repetitions, we isolated these independent sets ($\pi_{customer\_id, phone}$ and $\pi_{customer\_id, plate}$). *This proves 4NF by establishing standalone mappings!*
+
+**After 4NF:**
+*Table: `customer_phones`*
+| customer_id | phone_number |
+| :--- | :--- |
+| 1 | 9876543210 |
+| 1 | 8976543210 |
+
+*Table: `customer_vehicles`*
+| customer_id | vehicle_plate |
+| :--- | :--- |
+| 1 | MH12AB1234 |
+| 1 | MH12CD5678 |
+
+---
+
+### 6. Fifth Normal Form (5NF / Project-Join Normal Form - PJNF)
+**Rule:** Every join dependency is implied by the candidate keys.
+**Problem Setup:** A ternary, cyclic relationship exists between `operator`, `zone`, and `shift`.
+Suppose the business rule dictates: *If an operator is authorized for a zone, handles a specific shift type, and that zone needs coverage during that shift... then that operator is essentially "assigned" to that zone-shift.*
+
+Sticking this in one table triggers a **Join Dependency** anomaly because the semantic relationships are actually binary, causing insert/delete failures if one tier is dropped.
+
+**Before 5NF:**
+*Table: `operator_assignments`*
+| user_id | zone_id | shift_id |
+| :--- | :--- | :--- |
+| U1 | Z1 | SH1 |
+| U1 | Z2 | SH1 |
+
+**Decomposition & Relational Algebra Proof:**
+We decompose into three 5NF irreducible binary projections ($\pi_{user, zone}$, $\pi_{user, shift}$, $\pi_{zone, shift}$). By breaking the cyclic ternary relationship into independent binary constraint tables, we successfully eliminated all insert/update bugs!
+
+**After 5NF:**
+*Table: `operator_zones`*
+| user_id | zone_id |
+| :--- | :--- |
+| U1 | Z1 |
+| U1 | Z2 |
+
+*Table: `operator_shifts`*
+| user_id | shift_id |
+| :--- | :--- |
+| U1 | SH1 |
+
+*Table: `zone_shifts`*
+| zone_id | shift_id |
+| :--- | :--- |
+| Z1 | SH1 |
+| Z2 | SH1 |
+
+---
+
+---
+
+## Before vs. After Schema Comparison
+
+| Feature / State | Before Normalization (Unnormalized / 1NF Anomalies) | After Normalization (Up to 5NF) |
+| :--- | :--- | :--- |
+| **Table Structure** | Broad, multi-purpose, "flat" tables (e.g., `customer_details` mixing customer, vehicle, and shift data). | Granular, mathematically sound atomic tables (`customers`, `parking_zones`, `vehicle_types`). |
+| **Data Redundancy** | Extremely High (Repeating customer names, zone names, and hourly rates across multiple rows). | Minimized/Eliminated (Each distinct fact is recorded in exactly one place). |
+| **Multi-Valued Data** | Present (e.g., multiple `phones` combined as comma-separated text strings). | Resolved via 1NF/4NF (Separated into mapping tables like `customer_phones` and `customer_vehicles`). |
+| **Partial Dependencies** | Present if composite primary keys were used alongside atomic attributes. | Eliminated in 2NF (All tables either have single-column PKs or fully dependent attributes). |
+| **Transitive Dependencies**| Present (e.g., `spot_id` $\rightarrow$ `zone_id` $\rightarrow$ `zone_name`). | Removed in 3NF (Extracted into distinct tables like `parking_zones` and `vehicle_types`). |
+| **Multi-Valued Dependencies**| Present (Cartesian product of independent sets, e.g., phones $\times$ plates). | Removed in 4NF (Decomposed into separate, independent mapping tables). |
+| **Join Dependencies** | Cyclic ternary relations forcing artificial, hard-to-maintain combinations. | Removed in 5NF (Decomposed into irreducible binary projections like `operator_zones`). |
+| **Anomalies** | Susceptible to major Insertion, Update, and Deletion anomalies, causing data corruption over time. | **Zero Anomalies.** Perfectly governed by FK restraints and relational algebra. |
+
+---
+
+## The "After" State
+Through meticulous application of database constraints up to **Fifth Normal Form (5NF)**, the overarching schema is now represented correctly across atomic tables resulting in **Zero Anomalies**, maintaining **Lossless Join Property**, while ensuring mathematical **Dependency Preservation** via MySQL Foreign Keys configured with `ON DELETE CASCADE`.
+
+The full SQL breakdown representing this is documented perfectly inside `advanced_dbms_schema.sql`.
