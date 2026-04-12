@@ -109,6 +109,11 @@ HTML_CUSTOMERS = """
                 <label class="block text-gray-700 text-sm font-bold mb-2">Vehicle License Plate</label>
                 <input type="text" name="vehicle_plate" placeholder="MH12AB1234" class="w-full px-3 py-2 border rounded-lg uppercase bg-gray-50" required>
             </div>
+            <div class="mb-5">
+                <label class="block text-gray-700 text-sm font-bold mb-2"><i class="fas fa-phone mr-1"></i> Phone Numbers (1NF Normalization)</label>
+                <input type="text" name="phone_numbers" placeholder="e.g. 9876543210, 8976543210" class="w-full px-3 py-2 border rounded-lg bg-gray-50" required>
+                <p class="text-xs text-gray-500 mt-1">Comma-separated for multi-valued attribute demonstration.</p>
+            </div>
             <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
                 Register Customer
             </button>
@@ -125,6 +130,7 @@ HTML_CUSTOMERS = """
                         <th class="py-3 px-4 text-left font-semibold text-sm">Customer ID</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Name</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Vehicle Plate</th>
+                        <th class="py-3 px-4 text-left font-semibold text-sm">Phone Numbers</th>
                         <th class="py-3 px-4 text-left font-semibold text-sm">Registered Date</th>
                     </tr>
                 </thead>
@@ -134,10 +140,11 @@ HTML_CUSTOMERS = """
                         <td class="py-3 px-4 font-bold text-blue-600">{{ customer.customer_code }}</td>
                         <td class="py-3 px-4">{{ customer.name }}</td>
                         <td class="py-3 px-4 font-mono font-bold">{{ customer.vehicle_plate }}</td>
+                        <td class="py-3 px-4 text-sm">{{ customer.phones if customer.phones else 'N/A' }}</td>
                         <td class="py-3 px-4 text-sm">{{ customer.created_at.strftime('%Y-%m-%d') if customer.created_at else '' }}</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4" class="py-4 text-center text-gray-500">No customers registered yet.</td></tr>
+                    <tr><td colspan="5" class="py-4 text-center text-gray-500">No customers registered yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -527,10 +534,17 @@ def customers_page():
     cursor = conn.cursor(dictionary=True)
     customer_list = []
     try:
-        cursor.execute("SELECT * FROM customers ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT c.*, GROUP_CONCAT(cp.phone_number SEPARATOR ', ') as phones 
+            FROM customers c 
+            LEFT JOIN customer_phones cp ON c.id = cp.customer_id 
+            GROUP BY c.id 
+            ORDER BY c.created_at DESC
+        """)
         customer_list = cursor.fetchall()
-    except mysql.connector.Error:
-        flash("Please create the 'customers' table in your database first!", "error")
+    except mysql.connector.Error as e:
+        print("Error:", e)
+        flash("Please create the 'customers' and 'customer_phones' tables in your database first!", "error")
 
     cursor.close()
     conn.close()
@@ -544,6 +558,8 @@ def add_customer():
     
     name = request.form['name']
     vehicle_plate = request.form['vehicle_plate'].upper()
+    phone_numbers = request.form.get('phone_numbers', '')
+    phones = [p.strip() for p in phone_numbers.split(',') if p.strip()]
     
     # Generate a random customer code (e.g. CUST-8492)
     customer_code = f"CUST-{random.randint(1000, 9999)}"
@@ -555,10 +571,16 @@ def add_customer():
 
     cursor = conn.cursor()
     try:
+        conn.start_transaction()
         cursor.execute("INSERT INTO customers (customer_code, name, vehicle_plate) VALUES (%s, %s, %s)", 
                        (customer_code, name, vehicle_plate))
+        customer_id = cursor.lastrowid
+        
+        for phone in phones:
+            cursor.execute("INSERT INTO customer_phones (customer_id, phone_number) VALUES (%s, %s)", (customer_id, phone))
+            
         conn.commit()
-        flash(f'Customer {name} registered successfully with ID: {customer_code}!', 'success')
+        flash(f'Customer {name} registered successfully with {len(phones)} phone number(s)! ID: {customer_code}', 'success')
     except mysql.connector.IntegrityError:
         conn.rollback()
         flash('Error: This Vehicle Plate is already registered to a customer.', 'error')

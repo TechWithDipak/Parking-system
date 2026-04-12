@@ -72,13 +72,22 @@ CREATE TABLE payments (
     FOREIGN KEY (transaction_id) REFERENCES transactions(id)
 );
 
--- 8. Customers Table (Frequent Users)
+-- 8. Customers Table (Frequent Users - Core entity)
 CREATE TABLE customers (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_code VARCHAR(20) NOT NULL UNIQUE,
     name VARCHAR(100) NOT NULL,
     vehicle_plate VARCHAR(20) NOT NULL UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8.1 Customer Phones Table (Normalization: 1NF Separation for multi-valued attribute)
+-- Solves the multi-valued attribute problem where a single customer can have multiple phone numbers.
+CREATE TABLE customer_phones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    phone_number VARCHAR(15) NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
 
 -- 9. Audit Log Table (Demonstrates Durability & Traceability)
@@ -145,25 +154,56 @@ INSERT INTO parking_zones (zone_name, description) VALUES
 ('Level 1 - Cars', 'First floor car parking'),
 ('Level 2 - Bikes', 'Second floor two-wheeler parking');
 
--- Insert initial VIP spots
+-- Insert initial VIP spots (20 spots)
 INSERT INTO parking_spots (spot_number, zone_id, type_id) VALUES 
 ('V-01', 1, 1), ('V-02', 1, 1), ('V-03', 1, 1), ('V-04', 1, 1), ('V-05', 1, 1),
-('V-06', 1, 1), ('V-07', 1, 1), ('V-08', 1, 1), ('V-09', 1, 1), ('V-10', 1, 1);
+('V-06', 1, 1), ('V-07', 1, 1), ('V-08', 1, 1), ('V-09', 1, 1), ('V-10', 1, 1),
+('V-11', 1, 1), ('V-12', 1, 1), ('V-13', 1, 1), ('V-14', 1, 1), ('V-15', 1, 1),
+('V-16', 1, 1), ('V-17', 1, 1), ('V-18', 1, 1), ('V-19', 1, 1), ('V-20', 1, 1);
 
--- Insert initial Level 1 spots
+-- Insert initial Level 1 spots (20 spots)
 INSERT INTO parking_spots (spot_number, zone_id, type_id) VALUES 
 ('L1-01', 2, 1), ('L1-02', 2, 1), ('L1-03', 2, 1), ('L1-04', 2, 1), ('L1-05', 2, 1),
-('L1-06', 2, 1), ('L1-07', 2, 1), ('L1-08', 2, 1), ('L1-09', 2, 1), ('L1-10', 2, 1);
+('L1-06', 2, 1), ('L1-07', 2, 1), ('L1-08', 2, 1), ('L1-09', 2, 1), ('L1-10', 2, 1),
+('L1-11', 2, 1), ('L1-12', 2, 1), ('L1-13', 2, 1), ('L1-14', 2, 1), ('L1-15', 2, 1),
+('L1-16', 2, 1), ('L1-17', 2, 1), ('L1-18', 2, 1), ('L1-19', 2, 1), ('L1-20', 2, 1);
 
--- Insert initial Level 2 spots
+-- Insert initial Level 2 spots (20 spots)
 INSERT INTO parking_spots (spot_number, zone_id, type_id) VALUES 
 ('B-01', 3, 2), ('B-02', 3, 2), ('B-03', 3, 2), ('B-04', 3, 2), ('B-05', 3, 2),
-('B-06', 3, 2), ('B-07', 3, 2), ('B-08', 3, 2), ('B-09', 3, 2), ('B-10', 3, 2);
+('B-06', 3, 2), ('B-07', 3, 2), ('B-08', 3, 2), ('B-09', 3, 2), ('B-10', 3, 2),
+('B-11', 3, 2), ('B-12', 3, 2), ('B-13', 3, 2), ('B-14', 3, 2), ('B-15', 3, 2),
+('B-16', 3, 2), ('B-17', 3, 2), ('B-18', 3, 2), ('B-19', 3, 2), ('B-20', 3, 2);
 
 INSERT INTO monthly_passes (vehicle_plate, owner_name, valid_until) VALUES 
-('VIP-1111', 'John Doe', '2027-12-31');
+('VIP-1111', 'Rajeev Kumar', '2027-12-31');
 
 INSERT INTO customers (customer_code, name, vehicle_plate) VALUES 
-('CUST-001', 'Alice Smith', 'MH12AB1001'),
-('CUST-002', 'Bob Jones', 'MH14XY2002'),
-('CUST-003', 'Charlie Brown', 'KA01CD3003');
+('CUST-001', 'Rahul Sharma', 'MH12AB1001'),
+('CUST-002', 'Priya Patel', 'MH14XY2002'),
+('CUST-003', 'Aarav Singh', 'KA01CD3003'),
+('CUST-004', 'Neha Gupta', 'DL10CZ5432');
+
+INSERT INTO customer_phones (customer_id, phone_number) VALUES 
+(1, '9876543210'),
+(1, '8976543210'),
+(2, '7890123456'),
+(3, '9812345678'),
+(3, '8812345678'),
+(4, '9998887776');
+
+-- ==========================================
+-- SIMULATE LIVE OCCUPIED SPOTS
+-- ==========================================
+
+-- Rahul Sharma is parked in VIP spot V-02
+UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = 'MH12AB1001' WHERE spot_number = 'V-02';
+INSERT INTO transactions (vehicle_plate, spot_id, entry_time) SELECT 'MH12AB1001', spot_id, DATE_SUB(NOW(), INTERVAL 3 HOUR) FROM parking_spots WHERE spot_number = 'V-02';
+
+-- Random Guest is parked in Level 1 spot L1-05
+UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = 'DL01AA8899' WHERE spot_number = 'L1-05';
+INSERT INTO transactions (vehicle_plate, spot_id, entry_time) SELECT 'DL01AA8899', spot_id, DATE_SUB(NOW(), INTERVAL 5 HOUR) FROM parking_spots WHERE spot_number = 'L1-05';
+
+-- Aarav Singh is parked in Level 2 spot B-10 (Bike)
+UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = 'KA01CD3003' WHERE spot_number = 'B-10';
+INSERT INTO transactions (vehicle_plate, spot_id, entry_time) SELECT 'KA01CD3003', spot_id, DATE_SUB(NOW(), INTERVAL 1 HOUR) FROM parking_spots WHERE spot_number = 'B-10';
