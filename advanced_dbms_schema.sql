@@ -171,7 +171,7 @@ DELIMITER ;
 -- ==========================================
 
 INSERT INTO users (username, password) VALUES 
-('admin', 'admin123'), ('dipak', 'abc');
+('admin', 'admin123'), ('dipak', 'abc'), ('saksham', '123');
 
 INSERT INTO shifts (shift_name) VALUES ('Morning'), ('Evening'), ('Night');
 
@@ -219,8 +219,13 @@ INSERT INTO customer_vehicles (customer_id, vehicle_plate) VALUES
 
 -- Seed 5NF data (PJNF implies an Operator is placed if all binary pairs align)
 INSERT INTO operator_zones (user_id, zone_id) VALUES (2, 1), (2, 2);
-INSERT INTO operator_shifts (user_id, shift_id) VALUES (2, 1);
+INSERT INTO operator_shifts (user_id, shift_id) VALUES (2, 1), (3, 2);
 INSERT INTO zone_shifts (zone_id, shift_id) VALUES (1, 1), (2, 1);
+
+-- Seed Monthly Passes
+INSERT INTO monthly_passes (vehicle_plate, owner_name, valid_until) VALUES
+('MH12XY9999', 'Amit Kumar', DATE_ADD(CURDATE(), INTERVAL 1 MONTH)),
+('KA05AB1234', 'Neha Sharma', DATE_ADD(CURDATE(), INTERVAL 2 MONTH));
 
 -- Occupy a spot
 UPDATE parking_spots SET is_occupied = TRUE, vehicle_plate = 'MH12AB1001' WHERE spot_number = 'V-02';

@@ -13,7 +13,7 @@ app.secret_key = 'super_secret_key_for_session'
 db_config = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'Helloworld', # <-- CHANGE THIS
+    'password': 'your pass', # 
     'database': 'parking_sys'
 }
 
@@ -404,33 +404,17 @@ HTML_HISTORY = """
 
 HTML_REPORTS = """
 <div class="bg-white rounded-xl shadow-lg p-8">
-    <h2 class="text-2xl font-bold mb-6 text-gray-800"><i class="fas fa-chart-bar text-purple-500 mr-2"></i> Lock Mechanism Demonstration & Reports</h2>
+    <h2 class="text-2xl font-bold mb-6 text-gray-800"><i class="fas fa-chart-bar text-purple-500 mr-2"></i> Revenue Reports</h2>
     
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <div class="grid grid-cols-1 gap-8">
         <div class="p-6 bg-blue-50 border border-blue-200 rounded-lg">
-            <h3 class="text-xl font-bold text-blue-800 mb-4">Table-Level Locking Status</h3>
-            <p class="text-gray-700 mb-4 text-sm">
-                This report generated using a <code>LOCK TABLES ... READ / WRITE</code> (Table-Level Shared & Exclusive Locks) to guarantee absolute snapshot consistency across multiple tables without phantom reads.
-            </p>
+            <h3 class="text-xl font-bold text-blue-800 mb-4">Revenue Status</h3>
             <ul class="space-y-3">
                 <li class="flex justify-between font-bold"><span><i class="fas fa-money-check text-green-600 mr-2"></i> Total Cash Revenue:</span> <span>${{ totals.cash|default('0.00') }}</span></li>
                 <li class="flex justify-between font-bold"><span><i class="fas fa-credit-card text-blue-600 mr-2"></i> Total Card Revenue:</span> <span>${{ totals.card|default('0.00') }}</span></li>
                 <li class="flex justify-between font-bold"><span><i class="fas fa-qrcode text-purple-600 mr-2"></i> Total UPI Revenue:</span> <span>${{ totals.upi|default('0.00') }}</span></li>
                 <li class="flex justify-between font-bold text-xl border-t border-blue-200 pt-3 text-gray-900"><span>Grand Total:</span> <span>${{ totals.total|default('0.00') }}</span></li>
             </ul>
-        </div>
-        
-        <div class="p-6 bg-orange-50 border border-orange-200 rounded-lg">
-            <h3 class="text-xl font-bold text-orange-800 mb-4">Row-Level Locking Guide (ACID)</h3>
-            <ul class="text-sm text-gray-700 space-y-4">
-                <li><i class="fas fa-lock mr-2 text-red-500"></i><strong>Row-Level Exclusive Lock:</strong> Used in Check-In and Check-Out. <code>SELECT ... FOR UPDATE</code> blocks other transactions from modifying or reading the specific spot or transaction row until <code>COMMIT</code>.</li>
-                <li><i class="fas fa-lock-open mr-2 text-green-500"></i><strong>Row-Level Shared Lock:</strong> Used in the Fare Calculation popup. <code>SELECT ... FOR SHARE</code> allows others to read, but prevents modifications while the rate is being calculated.</li>
-            </ul>
-            <div class="mt-4 text-xs font-mono bg-white p-3 border rounded">
-                Example: cursor.execute("SELECT ... FOR UPDATE")<br>
-                conn.start_transaction()<br>
-                conn.commit() / conn.rollback()
-            </div>
         </div>
     </div>
 </div>
